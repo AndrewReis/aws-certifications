@@ -1,0 +1,482 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Laboratório SQS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: uma lição por vez. Esquerda = o que fazer; direita = a fila funcionando. Empilha no celular.
+   Cor: teal = esperando na fila, âmbar = em processamento, vermelho = DLQ/erro, verde = concluído. */
+:root{
+  --bg:#EEF1F3; --panel:#FFFFFF; --sunk:#F4F6F7; --ink:#16212B; --muted:#5A6977; --line:#D6DDE3;
+  --accent:#0E6F78; --accent-ink:#FFFFFF;
+  --vis:#0E7C86; --vis-bg:#DDF0F1; --fly:#B86E00; --fly-bg:#FBEBD2; --dlq:#B83A33; --dlq-bg:#F8DEDB; --ok:#2B7A4B; --ok-bg:#DCF0E3;
+  --gA:#2F6FB5; --gB:#A3477D; --gC:#6C7F1E;
+  --f-display:"Familjen Grotesk","Helvetica Neue",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0E151B; --panel:#151F27; --sunk:#111A21; --ink:#E2E9EE; --muted:#93A3B0; --line:#26333E;
+  --accent:#3FB5BE; --accent-ink:#06191B;
+  --vis:#4CC3CC; --vis-bg:#123338; --fly:#F0A73C; --fly-bg:#3A2A10; --dlq:#F07A70; --dlq-bg:#3D1C1A; --ok:#62C98A; --ok-bg:#15301F;
+  --gA:#6FA8E8; --gB:#E07DB7; --gC:#B5CC55; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#0E151B; --panel:#151F27; --sunk:#111A21; --ink:#E2E9EE; --muted:#93A3B0; --line:#26333E;
+  --accent:#3FB5BE; --accent-ink:#06191B;
+  --vis:#4CC3CC; --vis-bg:#123338; --fly:#F0A73C; --fly-bg:#3A2A10; --dlq:#F07A70; --dlq-bg:#3D1C1A; --ok:#62C98A; --ok-bg:#15301F;
+  --gA:#6FA8E8; --gB:#E07DB7; --gC:#B5CC55; color-scheme:dark }
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance}
+h1{font-size:1.7rem} h2{font-size:1.35rem} h3{font-size:.95rem}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:var(--f-mono);font-size:.85em;background:var(--sunk);border:1px solid var(--line);padding:0 4px;border-radius:4px}
+.muted{color:var(--muted)}
+
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}
+.top p{margin:2px 0 0;color:var(--muted)}
+.clock{display:flex;align-items:center;gap:8px;font-family:var(--f-mono)}
+.clock b{font-size:1.1rem;font-variant-numeric:tabular-nums;min-width:5.5ch}
+
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tabs button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:6px 14px;font-size:.9rem}
+.tabs button[aria-current=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+.lesson{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:16px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.concept{margin:0;max-width:60ch}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;counter-reset:s}
+.steps li{display:grid;grid-template-columns:26px minmax(0,1fr);gap:10px;counter-increment:s}
+.steps li::before{content:counter(s);width:24px;height:24px;border-radius:50%;background:var(--sunk);border:1px solid var(--line);display:grid;place-items:center;font-family:var(--f-mono);font-size:.8rem}
+.steps p{margin:0}
+.act{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center}
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 14px;border-radius:7px;font-weight:500}
+.btn:hover{border-color:var(--accent)}
+.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:var(--sunk);padding:6px 14px;font-weight:500}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.rng{display:flex;align-items:center;gap:10px;width:100%;max-width:340px}
+.rng input{flex:1;min-width:0;accent-color:var(--accent)}
+.rng output{font-family:var(--f-mono);min-width:4.5ch;text-align:right}
+.take{background:var(--sunk);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.take p{margin:0}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details p{margin:8px 0 0}
+pre{margin:8px 0 0;background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:10px;overflow-x:auto;font-family:var(--f-mono);font-size:.78rem;line-height:1.55}
+
+/* palco */
+.stage{gap:12px}
+.flow{display:grid;grid-template-columns:minmax(0,1fr) 28px minmax(0,0.8fr);gap:8px;align-items:stretch}
+.arrow{display:grid;place-items:center;color:var(--muted);font-size:1.3rem}
+.box{border:1px solid var(--line);border-radius:8px;background:var(--sunk);padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.box .sub{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted)}
+.box .sub b{font-family:var(--f-mono);color:var(--ink)}
+.box.dlq{border-color:color-mix(in srgb,var(--dlq) 45%,var(--line))}
+.chips{display:flex;flex-wrap:wrap;gap:5px;min-height:28px;max-height:150px;overflow:auto;align-content:flex-start}
+.chip{border-radius:5px;padding:2px 7px;font-family:var(--f-mono);font-size:.78rem;display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+.chip.visible{background:var(--vis-bg);color:var(--vis)}
+.chip.inflight{background:var(--fly-bg);color:var(--fly);flex-direction:column;align-items:stretch;gap:2px;min-width:70px}
+.chip.dlq{background:var(--dlq-bg);color:var(--dlq)}
+.chip.poison{background-image:repeating-linear-gradient(135deg,transparent 0 5px,color-mix(in srgb,var(--dlq) 25%,transparent) 5px 7px)}
+.chip sup{font-size:.62rem}
+.chip .bar{height:3px;background:color-mix(in srgb,var(--fly) 20%,transparent);border-radius:2px;overflow:hidden}
+.chip .bar i{display:block;height:100%;background:var(--fly)}
+.chip small{font-size:.64rem;color:var(--muted)}
+.g{font-style:normal;font-size:.62rem;font-weight:600;color:#fff;border-radius:3px;padding:0 3px}
+.gA{background:var(--gA)} .gB{background:var(--gB)} .gC{background:var(--gC)}
+.empty{font-size:.8rem;color:var(--muted);font-style:italic}
+.cons{display:flex;flex-direction:column;gap:8px}
+.c{display:flex;flex-direction:column;gap:3px;font-size:.82rem}
+.c .h{display:flex;justify-content:space-between;gap:6px}
+.c b{font-family:var(--f-display)}
+.c span{font-family:var(--f-mono);font-size:.76rem;color:var(--muted);text-align:right}
+.prog{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.prog i{display:block;height:100%;background:var(--fly)}
+.c.waiting .prog i{background:var(--vis)}
+.strip{display:flex;flex-wrap:wrap;gap:3px}
+.strip span{font-family:var(--f-mono);font-size:.74rem;padding:1px 5px;border-radius:4px;background:var(--ok-bg);color:var(--ok)}
+.strip span.ooo{background:var(--fly-bg);color:var(--fly);font-weight:600}
+.alarm{font-family:var(--f-mono);font-size:.78rem;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--ok-bg);color:var(--ok)}
+.alarm.on{background:var(--dlq);color:#fff}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.num{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.num span{font-size:.78rem;color:var(--muted)}
+.num b{font-family:var(--f-mono);font-size:1.5rem;font-weight:500;font-variant-numeric:tabular-nums}
+.num.bad b{color:var(--dlq)} .num.warn b{color:var(--fly)} .num.good b{color:var(--ok)}
+.num small{font-size:.72rem;color:var(--muted)}
+.log{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:.84rem}
+.log li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px}
+.log time{font-family:var(--f-mono);color:var(--muted);font-size:.76rem;padding-top:2px}
+.log .err{color:var(--dlq)} .log .warn{color:var(--fly)} .log .ok{color:var(--ok)}
+
+@media (max-width:860px){ .lesson{grid-template-columns:minmax(0,1fr)} }
+@media (max-width:520px){ .flow{grid-template-columns:minmax(0,1fr)} .arrow{transform:rotate(90deg);height:20px} }
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div><h1>Laboratório SQS</h1><p>Seis lições curtas. Cada uma mostra um conceito da fila funcionando.</p></div>
+    <div class="clock"><span class="muted">tempo simulado</span><b id="clock">00:00</b>
+      <button class="btn" id="play">Pausar</button>
+      <select id="speed" aria-label="Velocidade"><option value="1">1x</option><option value="2" selected>2x</option><option value="4">4x</option></select></div>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Lições"></nav>
+
+  <div class="lesson">
+    <section class="card" id="side"></section>
+
+    <section class="card stage">
+      <div class="flow">
+        <div class="box">
+          <h3 id="qn">fila</h3>
+          <div class="sub">Esperando na fila (visíveis) <b id="nV">0</b></div>
+          <div class="chips" id="laneV"></div>
+          <div class="sub">Em processamento (invisíveis) <b id="nF">0</b></div>
+          <div class="chips" id="laneF"></div>
+        </div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="box"><h3>Consumers</h3><div class="cons" id="cons"></div></div>
+      </div>
+      <div class="box dlq" id="dlqBox" hidden>
+        <div class="sub"><h3 id="dlqN">DLQ</h3><span class="alarm" id="alarm">alarme OK</span></div>
+        <div class="chips" id="laneD"></div>
+      </div>
+      <div class="box" id="stripBox" hidden>
+        <div class="sub">Ordem em que os pedidos foram processados <span>verde = em ordem · âmbar = fora de ordem</span></div>
+        <div class="strip" id="strip"></div>
+      </div>
+      <div class="nums" id="nums"></div>
+      <div><h3 style="margin-bottom:6px">O que aconteceu</h3><ul class="log" id="log"></ul></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const fmtT=t=>{t=Math.max(0,Math.floor(t));return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')};
+const nf=(n,d=0)=>n.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function hash(s){let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193)}return(h>>>0).toString(16)}
+const rh=()=>Math.random().toString(36).slice(2,8);
+
+// ================= motor da fila =================
+const S={running:true,speed:2};
+function reset(q,cons,opts={}){
+  Object.assign(S,{t:0,q:{type:'standard',name:'fila',vis:30,wait:20,maxRecv:3,dlq:false,...q},
+    dupRate:0,idem:false,bugFixed:false,...opts,
+    msgs:[],dlq:[],seq:0,ord:0,dedup:new Map(),processed:new Set(),done:new Set(),lastOrd:{},order:[],
+    m:{sent:0,effects:0,dupEffects:0,ooo:0,empty:0,falseEmpty:0,throttled:0,dedupDrop:0,staleDel:0,idemSkips:0,fails:0,reqs:0},
+    reqTimes:[],win:{sec:-1,calls:0},alarm:false,log:[],lastWarn:-9});
+  S.cons=cons.map((c,i)=>({name:'C'+(i+1),batch:1,proc:2,hb:false,...c,st:'idle',next:0,deadline:0,list:[],cur:0,handles:{},doneAt:0,start:0,dur:1,nextHb:0}));
+}
+const fifo=()=>S.q.type==='fifo';
+const dlqName=()=>fifo()?S.q.name.replace(/\.fifo$/,'')+'-dlq.fifo':S.q.name+'-dlq';
+function log(kind,text){S.log.unshift({t:S.t,kind,text}); if(S.log.length>40) S.log.length=40;}
+function req(){S.m.reqs++; S.reqTimes.push(S.t);}
+
+function sendOne({body,group,dedupId,poison}){
+  if(fifo()){
+    const d=dedupId||'sha256:'+hash(body);
+    const exp=S.dedup.get(d);
+    if(exp&&exp>S.t){S.m.dedupDrop++; return 'dedup';}
+    S.dedup.set(d,S.t+300);
+  }
+  const n=++S.seq;
+  S.msgs.push({id:n,seq:n,ord:++S.ord,body,group:fifo()?group:null,poison:!!poison,state:'visible',visibleAt:0,visTotal:1,recv:0,server:Math.floor(Math.random()*5),by:null,failed:false,ghost:false});
+  S.m.sent++; return 'ok';
+}
+function send(specs,batch=false){
+  const calls=batch?Array.from({length:Math.ceil(specs.length/10)},(_,i)=>specs.slice(i*10,i*10+10)):specs.map(s=>[s]);
+  const r={ok:0,dedup:0,thr:0};
+  for(const call of calls){
+    if(fifo()){const sec=Math.floor(S.t); if(S.win.sec!==sec)S.win={sec,calls:0}; if(S.win.calls>=300){r.thr+=call.length;continue;} S.win.calls++;}
+    req(); for(const s of call) r[sendOne(s)]++;
+  }
+  S.m.throttled+=r.thr; return r;
+}
+function toDlq(m){S.msgs.splice(S.msgs.indexOf(m),1); m.state='dlq'; m.by=null; S.dlq.push(m);
+  log('err',`Mensagem #${m.seq} falhou ${m.recv} vezes (maxReceiveCount = ${S.q.maxRecv}) e foi movida para a DLQ.`);}
+function receive(c,sample){
+  const out=[]; let pool=S.msgs.filter(m=>m.state==='visible');
+  if(!fifo()){
+    if(sample){const a=[0,1,2,3,4].sort(()=>Math.random()-.5).slice(0,3); pool=pool.filter(m=>a.includes(m.server));}
+    pool=pool.map(m=>[m.ord+Math.random()*6,m]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+  }else{
+    const busy=new Set(S.msgs.filter(m=>m.state==='inflight').map(m=>m.group));
+    pool=pool.filter(m=>!busy.has(m.group)).sort((a,b)=>a.ord-b.ord);
+    const firstG=pool[0]?.group; pool=pool.filter(m=>m.group===firstG);
+  }
+  for(const m of pool){
+    if(out.length>=c.batch) break;
+    if(S.q.dlq&&m.recv>=S.q.maxRecv){toDlq(m);continue;}
+    Object.assign(m,{state:'inflight',by:c.name,handle:rh(),visTotal:Math.max(S.q.vis,.001),visibleAt:S.t+S.q.vis,failed:false,ghost:false});
+    m.recv++; c.handles[m.id]=m.handle; out.push(m);
+  }
+  return out;
+}
+function poll(c){
+  req();
+  const got=receive(c,S.q.wait===0&&!fifo());
+  if(got.length) return begin(c,got);
+  if(S.q.wait===0){
+    S.m.empty++; c.next=S.t+0.5;
+    if(S.msgs.some(m=>m.state==='visible')){S.m.falseEmpty++;
+      if(S.t-S.lastWarn>4){S.lastWarn=S.t; log('warn',`${c.name} recebeu resposta vazia mesmo com mensagem na fila: o short polling consulta só parte dos servidores.`);}}
+  }else{c.st='waiting'; c.deadline=S.t+S.q.wait;}
+}
+function begin(c,got){c.list=got; c.cur=0; c.st='busy'; startMsg(c);}
+function startMsg(c){c.start=S.t; c.dur=c.proc*(0.85+Math.random()*0.3); c.doneAt=S.t+c.dur; c.nextHb=S.t+Math.max(1,S.q.vis/2);}
+function finish(c){
+  const m=c.list[c.cur], h=c.handles[m.id];
+  if(m.poison&&!S.bugFixed){
+    S.m.fails++; log('err',`${c.name} falhou ao processar #${m.seq} (tentativa ${m.recv}). Sem delete: ela volta para a fila quando o visibility timeout acabar.`);
+    if(S.msgs.includes(m)&&m.handle===h){m.by=null; m.failed=true;}
+  }else{
+    if(S.idem&&S.processed.has(m.id)){S.m.idemSkips++; log('ok',`${c.name} viu que #${m.seq} já foi processada e só apagou a cópia.`);}
+    else{
+      S.m.effects++;
+      if(S.done.has(m.id)){S.m.dupEffects++; log('warn',`#${m.seq} foi processada de novo por ${c.name}. Efeito repetido!`);}
+      else{const g=m.group||'-'; const last=S.lastOrd[g]??-1; const ooo=m.ord<last; if(ooo)S.m.ooo++; S.lastOrd[g]=Math.max(last,m.ord); S.order.push({seq:m.seq,g:m.group,ooo}); if(S.order.length>48)S.order.shift();}
+      S.done.add(m.id); if(S.idem) S.processed.add(m.id);
+    }
+    req();
+    if(!S.msgs.includes(m)||m.handle!==h){S.m.staleDel++; log('warn',`${c.name} tentou apagar #${m.seq}, mas o receipt handle era antigo: outro consumer já tinha recebido a mensagem.`);}
+    else if(!fifo()&&Math.random()<S.dupRate){Object.assign(m,{state:'inflight',by:null,ghost:true,visibleAt:S.t+2+Math.random()*3}); m.visTotal=m.visibleAt-S.t;
+      log('warn',`At-least-once: uma cópia de #${m.seq} não foi apagada e vai ser entregue de novo.`);}
+    else S.msgs.splice(S.msgs.indexOf(m),1);
+  }
+  c.cur++;
+  if(c.cur<c.list.length) startMsg(c); else {c.st='idle'; c.list=[]; c.next=S.t;}
+}
+function step(){
+  for(const m of S.msgs) if(m.state==='inflight'&&S.t>=m.visibleAt){
+    const c=S.cons.find(x=>x.name===m.by);
+    if(c&&c.st==='busy'&&c.list.indexOf(m)>=c.cur) log('warn',`O visibility timeout de #${m.seq} acabou enquanto ${c.name} ainda processava. Ela ficou visível de novo.`);
+    Object.assign(m,{state:'visible',by:null,ghost:false,failed:false});
+  }
+  for(const c of S.cons){
+    if(c.st==='idle'){ if(S.t>=c.next) poll(c); }
+    else if(c.st==='waiting'){ const got=receive(c,false); if(got.length) begin(c,got); else if(S.t>=c.deadline){S.m.empty++; c.st='idle'; c.next=S.t;} }
+    else { if(c.hb&&S.t>=c.nextHb){ for(let i=c.cur;i<c.list.length;i++){const m=c.list[i]; if(m.handle===c.handles[m.id]&&m.state==='inflight'){m.visibleAt=S.t+S.q.vis; m.visTotal=S.q.vis; req();}} c.nextHb=S.t+Math.max(1,S.q.vis/2);} if(S.t>=c.doneAt) finish(c); }
+  }
+  if(S.dlq.length&&!S.alarm){S.alarm=true; log('err','Alarme do CloudWatch disparou: a DLQ tem mensagens. O SNS mandou email para o time.');}
+  if(!S.dlq.length) S.alarm=false;
+  S.reqTimes=S.reqTimes.filter(x=>x>S.t-10);
+}
+
+// ================= lições =================
+let pedido=1000;
+const pedidos=(n,groups)=>Array.from({length:n},(_,i)=>({body:`pedido-${++pedido}`,group:groups?groups[i%groups.length]:null}));
+const L=[
+{title:'Standard vs FIFO',
+ concept:'A fila <b>Standard</b> tenta manter a ordem, mas não garante. A <b>FIFO</b> garante a ordem dentro de cada <code>MessageGroupId</code>.',
+ setup(type='standard'){ reset({type,name:type==='fifo'?'pedidos.fifo':'pedidos'},[{batch:5,proc:1.5},{batch:5,proc:1.5},{batch:5,proc:1.5}]); },
+ steps:[
+  {t:'Envie 15 pedidos para uma fila Standard com 3 consumers.',a:[['Enviar 15 pedidos',()=>{send(pedidos(15,fifo()?['A','B','C']:null),true);log('',`15 pedidos enviados${fifo()?' (clientes A, B e C)':''}.`)}]]},
+  {t:'Veja a faixa de ordem: os números em âmbar foram processados antes de um pedido mais antigo.'},
+  {t:'Troque para FIFO e envie de novo. Cada pedido pertence a um cliente (A, B ou C), que é o <code>MessageGroupId</code>.',seg:{opts:[['standard','Standard'],['fifo','FIFO']],get:()=>S.q.type,set:v=>{L[0].setup(v);log('',`Fila ${v==='fifo'?'pedidos.fifo criada (o nome precisa terminar em .fifo)':'pedidos criada'}.`)}}},
+ ],
+ strip:true,
+ nums:()=>[['Pedidos processados',S.m.effects,''],['Fora de ordem',S.m.ooo,S.m.ooo?'warn':'good']],
+ take:'Na FIFO, enquanto um pedido do cliente A está em processamento, nenhum consumer recebe o próximo pedido do A. É isso que garante a ordem, e também limita o paralelismo ao número de grupos.',
+ q:'Se todos os pedidos tiverem o mesmo MessageGroupId, quantos consumers trabalham ao mesmo tempo?',
+ a:'Só um. Por isso o MessageGroupId deve ser a entidade cuja ordem importa (cliente, conta), e não um valor fixo para a fila toda.',
+ code:`// FIFO: a ordem vale por grupo
+await sqs.send(new SendMessageCommand({
+  QueueUrl, MessageBody: JSON.stringify(pedido),
+  MessageGroupId: pedido.clienteId,
+  MessageDeduplicationId: pedido.id, // ou ContentBasedDeduplication=true na fila
+}));`},
+
+{title:'Duplicatas e idempotência',
+ concept:'A Standard entrega <b>pelo menos uma vez</b>. De vez em quando a mesma mensagem chega duas vezes, e o consumer precisa aguentar isso.',
+ setup(){ reset({name:'emails'},[{batch:5,proc:1},{batch:5,proc:1}],{dupRate:0.2}); },
+ steps:[
+  {t:'Envie 20 emails. A chance de duplicata está exagerada (20%) para você conseguir ver.',a:[['Enviar 20 emails',()=>{send(Array.from({length:20},(_,i)=>({body:'email-'+(++pedido)})),true);log('','20 emails enviados.')}]]},
+  {t:'Olhe "Emails enviados em dobro": são clientes recebendo o mesmo email duas vezes.'},
+  {t:'Ligue a idempotência e envie mais 20. O consumer passa a guardar o id de quem já foi processado (no mundo real, numa tabela do DynamoDB).',seg:{opts:[[false,'Sem idempotência'],[true,'Com idempotência']],get:()=>S.idem,set:v=>{S.idem=v;log('',v?'Consumers agora checam se a mensagem já foi processada.':'Idempotência desligada.')}}},
+ ],
+ nums:()=>[['Emails enviados',S.m.effects,''],['Emails enviados em dobro',S.m.dupEffects,S.m.dupEffects?'bad':'good'],['Cópias ignoradas',S.m.idemSkips,'good']],
+ take:'As cópias continuam chegando com idempotência ligada. O que muda é que o efeito (mandar o email) não se repete.',
+ q:'Usar o MessageId como chave de idempotência é suficiente?',
+ a:'Não totalmente. Se o producer reenviar após um erro de rede, a cópia ganha outro MessageId. Use uma chave de negócio, como o id do pedido.',
+ code:`// Grava a chave só se ela ainda não existir
+try {
+  await ddb.send(new PutItemCommand({
+    TableName: "processados",
+    Item: { pk: { S: pedido.id } },
+    ConditionExpression: "attribute_not_exists(pk)",
+  }));
+  await enviarEmail(pedido);
+} catch (e) {
+  if (e.name !== "ConditionalCheckFailedException") throw e;
+  // já processado: só apaga a mensagem
+}`},
+
+{title:'Visibility timeout',
+ concept:'Quando um consumer recebe uma mensagem, ela fica <b>invisível</b> pelo tempo do visibility timeout. Se o processamento demorar mais que isso, ela reaparece e outro consumer a pega.',
+ setup(){ reset({name:'relatorios',vis:5},[{proc:8},{proc:8}]); },
+ steps:[
+  {t:'Cada relatório leva cerca de 8 s para processar, mas o visibility timeout está em 5 s. Envie 4 relatórios.',a:[['Enviar 4 relatórios',()=>{send(Array.from({length:4},()=>({body:'relatorio-'+(++pedido)})));log('','4 relatórios enviados.')}]]},
+  {t:'Veja no log a mensagem voltando para a fila no meio do processamento e sendo processada duas vezes.'},
+  {t:'Aumente o visibility timeout para mais de 8 s e envie de novo.',rng:{min:2,max:60,get:()=>S.q.vis,set:v=>S.q.vis=v,fmt:v=>v+' s'}},
+  {t:'Outra solução: volte para 5 s e ligue o heartbeat, que estende a invisibilidade enquanto o trabalho não termina (<code>ChangeMessageVisibility</code>).',seg:{opts:[[false,'Sem heartbeat'],[true,'Com heartbeat']],get:()=>S.cons[0].hb,set:v=>{S.cons.forEach(c=>c.hb=v);log('',v?'Heartbeat ligado.':'Heartbeat desligado.')}}},
+ ],
+ nums:()=>[['Relatórios processados',S.m.effects,''],['Processados em dobro',S.m.dupEffects,S.m.dupEffects?'bad':'good'],['Deletes com handle antigo',S.m.staleDel,S.m.staleDel?'warn':'']],
+ take:'Regra prática: visibility timeout maior que o tempo máximo de processamento. Com Lambda, a AWS recomenda 6x o timeout da função.',
+ q:'O padrão é 30 s. Qual o mínimo e o máximo?',
+ a:'Mínimo 0 s e máximo 12 horas (43.200 s). O ChangeMessageVisibility define o novo prazo a partir do momento da chamada, não soma ao anterior.',
+ code:`// Heartbeat: estende a invisibilidade enquanto processa
+const hb = setInterval(() => sqs.send(new ChangeMessageVisibilityCommand({
+  QueueUrl, ReceiptHandle: msg.ReceiptHandle, VisibilityTimeout: 30,
+})), 15_000);
+try { await processar(msg); await apagar(msg); }
+finally { clearInterval(hb); }`},
+
+{title:'Dead Letter Queue',
+ concept:'Uma mensagem com defeito falha sempre. Sem DLQ, ela volta para a fila para sempre. Com DLQ, depois de <code>maxReceiveCount</code> tentativas o SQS a move para outra fila.',
+ setup(){ reset({name:'imagens',vis:6,dlq:true,maxRecv:3},[{proc:1},{proc:1}]); },
+ steps:[
+  {t:'Envie algumas imagens normais e uma com defeito (listrada).',a:[['Enviar 3 imagens',()=>{send(Array.from({length:3},()=>({body:'foto-'+(++pedido)})));log('','3 imagens enviadas.')}],['Enviar imagem com defeito',()=>{send([{body:'corrompida-'+(++pedido),poison:true}]);log('','Imagem com defeito enviada.')}]]},
+  {t:'Acompanhe o contador de tentativas no chip (×1, ×2, ×3). Depois disso ela vai para a DLQ e o alarme dispara.',rng:{label:'maxReceiveCount',min:1,max:5,get:()=>S.q.maxRecv,set:v=>S.q.maxRecv=v,fmt:v=>v}},
+  {t:'Corrija o bug e devolva as mensagens da DLQ para a fila (redrive).',a:[['Corrigir bug e fazer redrive',()=>{S.bugFixed=true; const n=S.dlq.length; S.dlq.forEach(m=>{Object.assign(m,{state:'visible',recv:0,visibleAt:S.t,ord:++S.ord}); S.msgs.push(m)}); S.dlq=[]; log('ok',`Bug corrigido. ${n} mensagem(ns) voltaram da DLQ para a fila.`)}]]},
+  {t:'Agora desligue a DLQ e envie outra imagem com defeito. Ela fica girando sem fim.',seg:{opts:[[true,'Com DLQ'],[false,'Sem DLQ']],get:()=>S.q.dlq,set:v=>{S.q.dlq=v;S.bugFixed=false;log('',v?'DLQ ligada.':'DLQ desligada. Bug voltou.')}}},
+ ],
+ dlq:true,
+ nums:()=>[['Falhas',S.m.fails,S.m.fails?'warn':''],['Na DLQ',S.dlq.length,S.dlq.length?'bad':'good'],['Imagens processadas',S.m.effects,'']],
+ take:'A DLQ precisa ser do mesmo tipo da fila (Standard ou FIFO). Coloque o retention dela no máximo (14 dias) e um alarme quando tiver mensagens.',
+ q:'Por que a DLQ deve ter retention maior que a fila de origem?',
+ a:'Na Standard a mensagem leva para a DLQ a data original de entrada. Se ela já passou 3 de 4 dias na origem, sobra só 1 dia na DLQ.',
+ code:`aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes '{
+  "RedrivePolicy": "{\\"deadLetterTargetArn\\":\\"arn:aws:sqs:us-east-1:111122223333:imagens-dlq\\",\\"maxReceiveCount\\":\\"3\\"}"
+}'`},
+
+{title:'Short vs long polling',
+ concept:'Com <b>short polling</b> o consumer pergunta "tem mensagem?" e recebe a resposta na hora, quase sempre vazia. Com <b>long polling</b> a pergunta fica esperando até 20 s pela mensagem.',
+ setup(){ reset({name:'eventos',wait:0},[{},{},{}]); },
+ steps:[
+  {t:'Três consumers em short polling numa fila vazia. Veja quantas requisições por segundo isso gera e o custo no mês.'},
+  {t:'Envie uma mensagem. Às vezes a resposta vem vazia mesmo com ela na fila, porque o short polling consulta só parte dos servidores.',a:[['Enviar 1 mensagem',()=>{send([{body:'evento-'+(++pedido)}]);log('','1 mensagem enviada.')}]]},
+  {t:'Troque para long polling (<code>WaitTimeSeconds = 20</code>) e compare. Envie outra mensagem: ela chega na hora, sem esperar os 20 s.',seg:{opts:[[0,'Short (0 s)'],[20,'Long (20 s)']],get:()=>S.q.wait,set:v=>{S.q.wait=v;log('',`WaitTimeSeconds = ${v}.`)}}},
+ ],
+ nums:()=>{const r=S.reqTimes.length/Math.min(10,Math.max(S.t,1)); const c=Math.max(0,r*2592000-1e6)/1e6*0.4;
+   return [['Requisições por segundo',nf(r,1),r>2?'warn':'good'],['Respostas vazias',S.m.empty,''],['Custo estimado no mês',`US$ ${nf(c,2)}`,c>1?'warn':'good','US$ 0,40 por milhão; 1 milhão grátis']]},
+ take:'Long polling é quase sempre a escolha certa: menos requisições, menos respostas vazias, e a mensagem chega assim que entra na fila.',
+ q:'Com Lambda consumindo a fila, preciso configurar long polling?',
+ a:'Não. O serviço que puxa as mensagens para a Lambda já usa long polling. O atributo da fila importa para consumers que você mesmo escreve (EC2, ECS).',
+ code:`const { Messages = [] } = await sqs.send(new ReceiveMessageCommand({
+  QueueUrl,
+  WaitTimeSeconds: 20,        // long polling (sobrescreve o atributo da fila)
+  MaxNumberOfMessages: 10,
+}));`},
+
+{title:'FIFO: dedup e limite',
+ concept:'A FIFO descarta mensagens repetidas enviadas em até <b>5 minutos</b>. Ela também tem limite de vazão: <b>300 chamadas/s</b> sem batch, até 3.000 mensagens/s com batch de 10.',
+ setup(){ reset({type:'fifo',name:'pagamentos.fifo'},[{proc:.5},{proc:.5},{proc:.5}]); },
+ steps:[
+  {t:'Envie um pagamento e depois reenvie o mesmo, como faria um producer após um erro de rede.',a:[['Enviar pagamento 42',()=>{const r=send([{body:'pagamento-42',group:'A'}]);log(r.ok?'':'warn',r.ok?'Pagamento 42 enfileirado.':'Pagamento 42 repetido: o SQS respondeu sucesso, mas descartou a cópia.')}]]},
+  {t:'Envie 500 mensagens com uma chamada por mensagem, todas no mesmo segundo.',a:[['500 sem batch',()=>{const r=send(pedidos(500,['A','B','C']));log(r.thr?'err':'',`${r.ok} aceitas, ${r.thr} recusadas por limite de vazão (ThrottlingException).`)}]]},
+  {t:'Agora com SendMessageBatch: 50 chamadas de 10 mensagens.',a:[['500 com batch',()=>{const r=send(pedidos(500,['A','B','C']),true);log(r.thr?'err':'ok',`${r.ok} aceitas em ${Math.ceil(500/10)} chamadas, ${r.thr} recusadas.`)}]]},
+ ],
+ nums:()=>[['Enfileiradas',S.m.sent,''],['Descartadas por dedup',S.m.dedupDrop,S.m.dedupDrop?'good':''],['Recusadas por limite',S.m.throttled,S.m.throttled?'bad':'']],
+ take:'A FIFO garante que a mensagem entra uma vez na fila. Ela não garante que o consumer processe uma vez só: se o visibility timeout estourar, a mensagem volta. Idempotência continua necessária.',
+ q:'E se eu precisar de mais de 3.000 mensagens/s numa FIFO?',
+ a:'Ative o high throughput mode da FIFO, que escala bem mais distribuindo por MessageGroupId. Se a ordem não for essencial, use Standard.',
+ code:`await sqs.send(new SendMessageBatchCommand({
+  QueueUrl,
+  Entries: pagamentos.slice(0, 10).map(p => ({
+    Id: p.id, MessageBody: JSON.stringify(p),
+    MessageGroupId: p.contaId, MessageDeduplicationId: p.id,
+  })),
+}));`},
+];
+
+// ================= UI =================
+let cur=0;
+L.forEach((l,i)=>{const b=document.createElement('button'); b.textContent=`${i+1}. ${l.title}`; b.onclick=()=>open(i); $('#tabs').appendChild(b);});
+function open(i){
+  cur=i; const l=L[i]; l.setup();
+  document.querySelectorAll('#tabs button').forEach((b,k)=>b.setAttribute('aria-current',k===i));
+  const side=$('#side'); side.innerHTML=`<div><span class="lbl">Lição ${i+1} de ${L.length}</span><h2>${l.title}</h2></div>
+    <p class="concept">${l.concept}</p>
+    <ol class="steps">${l.steps.map((s,k)=>`<li><div><p>${s.t}</p><div class="act" id="a${k}"></div></div></li>`).join('')}</ol>
+    <div class="take"><span class="lbl">Para levar</span><p>${l.take}</p></div>
+    <details><summary>${l.q}</summary><p>${l.a}</p></details>
+    <details><summary>Como fica na AWS</summary><pre></pre></details>
+    <div class="act"><button class="btn" id="restart">Recomeçar a lição</button>${i<L.length-1?'<button class="btn pri" id="nextL">Próxima lição</button>':''}</div>`;
+  side.querySelector('pre').textContent=l.code;
+  l.steps.forEach((s,k)=>{
+    const box=document.getElementById('a'+k);
+    (s.a||[]).forEach(([label,fn],j)=>{const b=document.createElement('button'); b.className='btn'+(j===0?' pri':''); b.textContent=label; b.onclick=fn; box.appendChild(b);});
+    if(s.seg){const seg=document.createElement('div'); seg.className='seg';
+      const paint=()=>seg.querySelectorAll('button').forEach((b,j)=>b.setAttribute('aria-pressed',s.seg.opts[j][0]===s.seg.get()));
+      s.seg.opts.forEach(([v,label])=>{const b=document.createElement('button'); b.textContent=label; b.onclick=()=>{s.seg.set(v); paint(); refreshControls();}; seg.appendChild(b);});
+      seg._paint=paint; box.appendChild(seg); paint();}
+    if(s.rng){const w=document.createElement('label'); w.className='rng';
+      w.innerHTML=`${s.rng.label?`<span class="muted">${s.rng.label}</span>`:''}<input type="range" id="r${k}" min="${s.rng.min}" max="${s.rng.max}" value="${s.rng.get()}"><output>${s.rng.fmt(s.rng.get())}</output>`;
+      const inp=w.querySelector('input'), out=w.querySelector('output');
+      inp.oninput=()=>{s.rng.set(+inp.value); out.textContent=s.rng.fmt(+inp.value); updateTitle();};
+      w._sync=()=>{inp.value=s.rng.get(); out.textContent=s.rng.fmt(s.rng.get());};
+      box.appendChild(w);}
+  });
+  $('#restart').onclick=()=>open(i);
+  const nx=$('#nextL'); if(nx) nx.onclick=()=>{open(i+1); window.scrollTo({top:0,behavior:'smooth'});};
+  $('#dlqBox').hidden=!l.dlq; $('#stripBox').hidden=!l.strip;
+  updateTitle();
+}
+function refreshControls(){ document.querySelectorAll('#side .seg').forEach(s=>s._paint&&s._paint()); document.querySelectorAll('#side .rng').forEach(r=>r._sync&&r._sync()); updateTitle(); }
+function updateTitle(){ $('#qn').textContent=`${S.q.name} · ${fifo()?'FIFO':'Standard'} · visibility ${S.q.vis} s`; $('#dlqN').textContent='DLQ · '+dlqName(); }
+
+function chip(m){
+  const cls=['chip',m.state]; if(m.poison) cls.push('poison');
+  const g=m.group?`<i class="g g${m.group}">${m.group}</i>`:'';
+  const rc=m.recv>1||m.state==='dlq'?`<sup>×${m.recv}</sup>`:'';
+  if(m.state==='inflight'){const rem=Math.max(0,m.visibleAt-S.t);
+    const who=m.ghost?'cópia':m.failed?'falhou':m.by;
+    return `<span class="${cls.join(' ')}"><span>${g}#${m.seq}${rc}</span><span class="bar"><i style="width:${Math.min(100,rem/m.visTotal*100)}%"></i></span><small>${who} · ${Math.ceil(rem)}s</small></span>`;}
+  return `<span class="${cls.join(' ')}">${g}#${m.seq}${rc}</span>`;
+}
+function lane(el,list,empty){el.innerHTML=list.length?list.slice(0,120).map(chip).join('')+(list.length>120?`<span class="empty">+${list.length-120}</span>`:''):`<span class="empty">${empty}</span>`;}
+let logKey='';
+function render(){
+  $('#clock').textContent=fmtT(S.t);
+  const v=S.msgs.filter(m=>m.state==='visible').sort((a,b)=>a.ord-b.ord), f=S.msgs.filter(m=>m.state==='inflight');
+  $('#nV').textContent=v.length; $('#nF').textContent=f.length;
+  lane($('#laneV'),v,'vazia'); lane($('#laneF'),f,'nenhuma'); lane($('#laneD'),S.dlq,'vazia');
+  const a=$('#alarm'); a.textContent=S.alarm?'ALARME → SNS':'alarme OK'; a.className='alarm'+(S.alarm?' on':'');
+  $('#cons').innerHTML=S.cons.map(c=>{
+    let st,p=0,cls='';
+    if(c.st==='busy'){const m=c.list[c.cur]; st=`processando #${m.seq}`; p=Math.min(100,(S.t-c.start)/c.dur*100);}
+    else if(c.st==='waiting'){st=`aguardando (${Math.ceil(c.deadline-S.t)}s)`; p=100-Math.min(100,(c.deadline-S.t)/S.q.wait*100); cls='waiting';}
+    else st='perguntando à fila';
+    return `<div class="c ${cls}"><div class="h"><b>${c.name}</b><span>${st}</span></div><div class="prog"><i style="width:${p}%"></i></div></div>`;}).join('');
+  if(L[cur].strip) $('#strip').innerHTML=S.order.length?S.order.map(o=>`<span class="${o.ooo?'ooo':''}">${o.g?o.g+':':''}${o.seq}</span>`).join(''):'<span class="empty" style="background:none">nada processado ainda</span>';
+  $('#nums').innerHTML=L[cur].nums().map(([k,val,tone,note])=>`<div class="num ${tone||''}"><span>${k}</span><b>${typeof val==='number'?nf(val):val}</b>${note?`<small>${note}</small>`:''}</div>`).join('');
+  const k=S.log.length+(S.log[0]?.text||'')+S.log[0]?.t;
+  if(k!==logKey){logKey=k; $('#log').innerHTML=S.log.length?S.log.slice(0,7).map(l=>`<li><time>${fmtT(l.t)}</time><span class="${l.kind}">${esc(l.text)}</span></li>`).join(''):'<li><span class="muted">Use os botões da lição para começar.</span></li>';}
+}
+$('#play').onclick=()=>{S.running=!S.running; $('#play').textContent=S.running?'Pausar':'Continuar';};
+$('#speed').onchange=e=>S.speed=+e.target.value;
+
+open(0);
+send(pedidos(15),true); log('','15 pedidos enviados para mostrar a fila funcionando.');
+let last=performance.now(), lr=0;
+function loop(now){
+  const dt=Math.min(.25,(now-last)/1000); last=now;
+  if(S.running){let s=dt*S.speed; while(s>1e-9){const h=Math.min(.1,s); S.t+=h; step(); s-=h;}}
+  if(now-lr>100){lr=now; render();}
+  requestAnimationFrame(loop);
+}
+render(); requestAnimationFrame(loop);
+</script>
+
+</body></html>

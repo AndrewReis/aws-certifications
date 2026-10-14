@@ -82,11 +82,23 @@ Long Polling (recomendado)
 - menos requests
 - use sempre que possivel
 
+Configurar Long Polling:
+1. Queue level:
+- ReceiveMessageWaitTimeSeconds > 0 na criação da fila
+- Aplica long polling para todos os consumers
+- Valor recomendado: 20 segundos (maximo)
+2. API call:
+- WaitTimeSeconds na chamada ReceiveMessage
+- Sobrescreve configuração da fila para aquela chamada
 
+**Importante:**
+- WaitTimeSeconds == 0: Short Polling (padrão)
+- WaitTimeSeconds > 0: Long Polling (recomendado)
+- Long Polling reduz custo em até 50% comparado ao short polling
+- Sempre prefira long polling para economia e eficiência
 
-
-
-
+## Arquitetura recomendada:
+Fila principal (Long Polling = 20s) > Lambda > Se falhar 3x > DLQ > CloudWatch Alarm > SNS
 
 
 
